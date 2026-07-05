@@ -344,4 +344,4 @@ async def extract_ff_data(payload: ExtractorRequest):
 if __name__ == "__main__":
     import uvicorn
     # Local live test runtime server endpoint definition
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn app:app --host 0.0.0.0 --port $PORT
