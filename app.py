@@ -4,10 +4,9 @@ import time
 import json
 import base64
 import hashlib
-import threading
 from datetime import datetime
 
-# API Dependencies
+# Web API Framework Requirements
 import requests
 import urllib3
 import urllib.parse
@@ -16,7 +15,7 @@ from pydantic import BaseModel
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
-# Protobuf imports fallback logic as per your script
+# Protobuf Fallback Import Logic
 try:
     import MajoRLogin_pb2 as mLpB
     import MajorLoginRes_pb2 as mLrPb
@@ -26,15 +25,14 @@ except ImportError:
 
 urllib3.disable_warnings()
 
-# Initialize FastAPI instance
+# Initialize FastAPI Application
 app = FastAPI(
-    title="FF Login History Web API",
-    description="Full feature extraction backend parsed directly through HTTP requests.",
-    version="1.0.0"
+    title="FF Advanced Web API",
+    description="Login history extractor & nearby players radar module integrated together.",
+    version="1.1.0"
 )
 
-# --- GLOBAL LOGIC & CONFIGURATION (Exactly from your script) ---
-
+# --- GLOBAL VARIABLES & CONFIGURATION ---
 AeSkEy = b'Yg&tc%DEuh6%Zc^8'
 AeSiV  = b'6oyZDr22E3ychjM%'
 MAJOR_LOGIN_URL = "https://loginbp.ggpolarbear.com/MajorLogin"
@@ -60,8 +58,7 @@ PLATFORM_MAP = {
     13: "AppleId",
 }
 
-# --- CRYPTO & CORE ENGINE UTILITIES ---
-
+# --- CRYPTOGRAPHIC ENGINE ---
 def enc(d):
     return AES.new(AeSkEy, AES.MODE_CBC, AeSiV).encrypt(pad(d, 16))
 
@@ -82,6 +79,7 @@ def get_base_url(lock_region):
     else:
         return "https://clientbp.ggpolarbear.com"
 
+# --- PROTOBUF BUILDERS & PARSERS ---
 def build_majorlogin(tok, open_id, p_type):
     m = mLpB.MajorLogin()
     m.event_time = str(datetime.now())[:-7]
@@ -223,14 +221,12 @@ def decode_ff_name(b64_str):
         for i, byte in enumerate(encrypted_bytes):
             key_byte = key[i % len(key)]
             decrypted_bytes.append(byte ^ key_byte)
-        name = decrypted_bytes.decode('utf-8', errors='ignore')
-        return name
+        return decrypted_bytes.decode('utf-8', errors='ignore')
     except Exception as e:
         return f"Error decoding: {str(e)}"
 
-# --- FASTAPI UTILITY PIPELINE (Adapted cleanly without CLI Prints) ---
-
-def api_get_player_info(jwt):
+# --- PARSING CORE PIPELINES ---
+def api_get_player_info_dict(jwt):
     try:
         payload_b64 = jwt.split('.')[1]
         payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
@@ -252,9 +248,9 @@ def api_get_player_info(jwt):
             "error": None
         }
     except Exception as e:
-        return None, None, f"Could not parse Player Info: {str(e)}"
+        return {"error": f"Could not parse Player Info: {str(e)}"}
 
-def api_get_history(jwt, base_url):
+def api_get_history_list(jwt, base_url):
     history_url = f"{base_url}/GetLoginHistory"
     history_headers = {
         "Expect": "100-continue",
@@ -278,7 +274,7 @@ def api_get_history(jwt, base_url):
             d = r.content
         records = parse_history_protobuf(d)
         
-        parsed_records = []
+        history_data = []
         for rec in records:
             ts_raw = rec.get('ts', 0)
             try:
@@ -286,32 +282,37 @@ def api_get_history(jwt, base_url):
             except:
                 date_str = "Invalid Timestamp"
             
-            parsed_records.append({
+            history_data.append({
                 "time": date_str,
                 "timestamp_raw": ts_raw,
                 "device": rec.get('dev', 'Unknown Device'),
                 "architecture": rec.get('arch', 'Unknown Architecture'),
                 "ram_mb": rec.get('ram', 0)
             })
-        return parsed_records, None
+        return history_data, None
     except Exception as e:
         return None, f"Connection or Decoding Error: {str(e)}"
 
-# --- FastAPI Schemas ---
-
-class ExtractorRequest(BaseModel):
+# --- FASTAPI INPUT SCHEMAS ---
+class HistoryRequest(BaseModel):
     token: str
 
-# --- Endpoints ---
+class NearbyPlayersRequest(BaseModel):
+    token: str
+    longitude: float
+    latitude: float
+    distance: float = 5000.0
+    ip_address: str = "127.0.0.1"
 
+# --- ENDPOINTS CONTROL PANEL ---
+
+# Endpoint 1: Old Extractor (Login History)
 @app.post("/api/v1/extract")
-async def extract_ff_data(payload: ExtractorRequest):
+async def extract_free_fire_logs(payload: HistoryRequest):
     raw_token = payload.token.strip()
-    
     if not raw_token:
-        raise HTTPException(status_code=400, detail="Empty input! Token cannot be blank.")
+        raise HTTPException(status_code=400, detail="Error: Token cannot be blank.")
     
-    # Identify Token Type (JWT or raw string access token)
     if raw_token.startswith("ey") and "." in raw_token:
         jwt = raw_token
     else:
@@ -319,29 +320,98 @@ async def extract_ff_data(payload: ExtractorRequest):
         
     if not jwt:
         raise HTTPException(status_code=401, detail="Failed to obtain JWT. Token invalid or expired.")
-        
-    # Run Account Info Extractor 
-    player_data = api_get_player_info(jwt)
-    if isinstance(player_data, tuple) and player_data[2]: # check for errors
-        raise HTTPException(status_code=422, detail=player_data[2])
-        
-    base_url = player_data.pop("base_url") # Internal configuration context, pop out from user visibility
     
-    # Fetch login logs array
-    history_records, history_error = api_get_history(jwt, base_url)
+    player_profile = api_get_player_info_dict(jwt)
+    if player_profile.get("error"):
+        raise HTTPException(status_code=422, detail=player_profile["error"])
+        
+    base_url = player_profile.pop("base_url")
+    login_records, history_error = api_get_history_list(jwt, base_url)
     if history_error:
         raise HTTPException(status_code=502, detail=history_error)
         
     return {
         "status": "success",
-        "developer_credit": ["@spideyabd", "@ROX_T10"],
-        "data": {
-            "player_info": player_data,
-            "login_history": history_records
+        "credits": {"developer": ["@spideyabd", "@ROX_T10"]},
+        "response_data": {
+            "player_info": player_profile,
+            "login_history": login_records
         }
     }
 
+# Endpoint 2: New Nearby Players Component
+@app.post("/api/v1/nearby_players")
+async def get_nearby_players(payload: NearbyPlayersRequest):
+    raw_token = payload.token.strip()
+    if not raw_token:
+        raise HTTPException(status_code=400, detail="Error: Token cannot be blank.")
+        
+    # Get Valid JWT
+    if raw_token.startswith("ey") and "." in raw_token:
+        jwt = raw_token
+    else:
+        jwt = get_jwt_from_access(raw_token)
+        
+    if not jwt:
+        raise HTTPException(status_code=401, detail="Failed to obtain JWT.")
+        
+    # Region identification via token payload
+    player_profile = api_get_player_info_dict(jwt)
+    if player_profile.get("error"):
+        raise HTTPException(status_code=422, detail=player_profile["error"])
+    
+    base_url = player_profile.get("base_url", "https://clientbp.ggpolarbear.com")
+    nearby_url = f"{base_url}/GetPlayersNearby"
+    
+    # Building Req Structure according to payload parameters
+    req_json_payload = {
+        "1": {
+            "1": payload.longitude,
+            "2": payload.latitude
+        },
+        "2": payload.distance,
+        "3": payload.ip_address
+    }
+    
+    # Processing through existing enc / headers architecture
+    serialized_data = json.dumps(req_json_payload).encode('utf-8')
+    encrypted_payload = enc(serialized_data)
+    
+    nearby_headers = {
+        "Expect": "100-continue",
+        "Authorization": f"Bearer {jwt}",
+        "X-Unity-Version": "2018.4.11f1",
+        "X-GA": "v1 1",
+        "ReleaseVersion": "OB54",
+        "Content-Type": "application/octet-stream",
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; G011A Build/PI)",
+        "Host": base_url.replace("https://", ""),
+        "Connection": "close"
+    }
+    
+    try:
+        r = requests.post(nearby_url, headers=nearby_headers, data=encrypted_payload, timeout=15, verify=False)
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=f"Game Server returned HTTP {r.status_code}")
+            
+        try:
+            decrypted_response = dec(r.content)
+            # Try parsing protobuf or raw text JSON array response if any
+            try:
+                parsed_res = json.loads(decrypted_response.decode('utf-8'))
+            except:
+                parsed_res = decrypted_response.decode('utf-8', errors='ignore')
+        except:
+            parsed_res = r.content.decode('utf-8', errors='ignore')
+            
+        return {
+            "status": "success",
+            "target_url": nearby_url,
+            "response_data": parsed_res
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Request Pipeline Broken: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
-    # Local live test runtime server endpoint definition
-    uvicorn app:app --host 0.0.0.0 --port $PORT
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
