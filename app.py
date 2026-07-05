@@ -27,9 +27,9 @@ urllib3.disable_warnings()
 
 # Initialize FastAPI Application
 app = FastAPI(
-    title="FF Advanced Web API",
-    description="Login history extractor & nearby players radar module integrated together.",
-    version="1.1.0"
+    title="FF Simplified Web API",
+    description="Clean and short endpoints for easier routing.",
+    version="1.2.0"
 )
 
 # --- GLOBAL VARIABLES & CONFIGURATION ---
@@ -304,10 +304,10 @@ class NearbyPlayersRequest(BaseModel):
     distance: float = 5000.0
     ip_address: str = "127.0.0.1"
 
-# --- ENDPOINTS CONTROL PANEL ---
+# --- SHORT ENDPOINTS CONTROL PANEL ---
 
-# Endpoint 1: Old Extractor (Login History)
-@app.post("/api/v1/extract")
+# New Simplified Endpoint 1: /history
+@app.post("/history")
 async def extract_free_fire_logs(payload: HistoryRequest):
     raw_token = payload.token.strip()
     if not raw_token:
@@ -339,8 +339,8 @@ async def extract_free_fire_logs(payload: HistoryRequest):
         }
     }
 
-# Endpoint 2: New Nearby Players Component
-@app.post("/api/v1/nearby_players")
+# New Simplified Endpoint 2: /nearby
+@app.post("/nearby")
 async def get_nearby_players(payload: NearbyPlayersRequest):
     raw_token = payload.token.strip()
     if not raw_token:
@@ -396,7 +396,6 @@ async def get_nearby_players(payload: NearbyPlayersRequest):
             
         try:
             decrypted_response = dec(r.content)
-            # Try parsing protobuf or raw text JSON array response if any
             try:
                 parsed_res = json.loads(decrypted_response.decode('utf-8'))
             except:
